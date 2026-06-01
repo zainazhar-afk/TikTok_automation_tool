@@ -9,6 +9,7 @@ import { LoadingSpinner } from "@/components/common/LoadingSpinner";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { LocalVideoLibrary } from "@/components/upload/LocalVideoLibrary";
 import { VideoUploader } from "@/components/upload/VideoUploader";
+import { YouTubeUrlInput } from "@/components/upload/YouTubeUrlInput";
 import { ChannelOverview } from "@/components/youtube/ChannelOverview";
 import { ChannelUrlForm } from "@/components/youtube/ChannelUrlForm";
 import { VideoGrid } from "@/components/youtube/VideoGrid";
@@ -235,7 +236,17 @@ export default function DashboardPage() {
             />
           </section>
 
-          <section id="uploads" className="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <section id="uploads" className="grid gap-6 xl:grid-cols-3">
+            <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
+              <h2 className="text-xl font-semibold text-white">Download from YouTube</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                Paste a YouTube video URL to download it directly into the editor.
+              </p>
+              <div className="mt-5">
+                <YouTubeUrlInput />
+              </div>
+            </div>
+
             <div className="rounded-lg border border-white/10 bg-white/[0.04] p-5">
               <h2 className="text-xl font-semibold text-white">Upload Original Video</h2>
               <p className="mt-2 text-sm leading-6 text-slate-400">

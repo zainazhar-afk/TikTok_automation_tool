@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Clapperboard, LayoutDashboard, Wand2 } from "lucide-react";
+import { Clapperboard, Layers, LayoutDashboard, Wand2 } from "lucide-react";
 
 export function Navbar() {
   return (
@@ -18,6 +18,13 @@ export function Navbar() {
           >
             <LayoutDashboard className="h-4 w-4" />
             Dashboard
+          </Link>
+          <Link
+            href="/bulk"
+            className="inline-flex h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            <Layers className="h-4 w-4" />
+            Bulk Editor
           </Link>
           <Link
             href="/editor"

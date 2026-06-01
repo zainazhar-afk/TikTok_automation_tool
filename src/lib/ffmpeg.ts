@@ -22,6 +22,19 @@ type ExportOptions = {
 
 let ffmpeg: FFmpeg | null = null;
 let loadPromise: Promise<void> | null = null;
+let ffmpegLoadError: string | null = null;
+
+export function getFFmpegLoadState(): {
+  loaded: boolean;
+  loading: boolean;
+  error: string | null;
+} {
+  return {
+    loaded: ffmpeg?.loaded ?? false,
+    loading: loadPromise !== null && !(ffmpeg?.loaded ?? false),
+    error: ffmpegLoadError
+  };
+}
 
 export function loadFFmpeg(): Promise<void> {
   if (typeof window === "undefined") {
@@ -95,22 +108,91 @@ export async function exportEditedVideo(options: ExportOptions): Promise<Blob> {
   }
 }
 
+// ── Feature detection ──────────────────────────────────────────────
+
+function supportsSharedArrayBuffer(): boolean {
+  try {
+    return Boolean(globalThis.crossOriginIsolated);
+  } catch {
+    return false;
+  }
+}
+
+type CoreVariant = "esm" | "umd";
+
+function getCoreUrls(): { coreURL: string; wasmURL: string; variant: CoreVariant } {
+  const base = "https://unpkg.com/@ffmpeg/core@0.12.10/dist";
+  const variant: CoreVariant = supportsSharedArrayBuffer() ? "esm" : "umd";
+  return {
+    coreURL: `${base}/${variant}/ffmpeg-core.js`,
+    wasmURL: `${base}/${variant}/ffmpeg-core.wasm`,
+    variant
+  };
+}
+
+function alternateVariant(v: CoreVariant): CoreVariant {
+  return v === "esm" ? "umd" : "esm";
+}
+
+function buildLoadErrorMessage(
+  firstError: unknown,
+  primaryVariant: CoreVariant,
+  secondError: unknown,
+  secondaryVariant: CoreVariant
+): string {
+  const msg1 = firstError instanceof Error ? firstError.message : String(firstError);
+  const msg2 = secondError instanceof Error ? secondError.message : String(secondError);
+
+  if (!supportsSharedArrayBuffer()) {
+    return (
+      "FFmpeg could not start. SharedArrayBuffer is unavailable in this browser. " +
+      "Try reloading the page or using Chrome / Edge / Firefox."
+    );
+  }
+
+  if (msg1.includes("Failed to fetch") || msg2.includes("Failed to fetch")) {
+    return "FFmpeg could not load from the CDN. Check your network connection and try again.";
+  }
+
+  return `FFmpeg failed to load (${primaryVariant}: ${msg1} | ${secondaryVariant}: ${msg2}). Try refreshing the page.`;
+}
+
+// ── Core loader ────────────────────────────────────────────────────
+
 async function loadFFmpegInternal(): Promise<void> {
   ffmpeg = new FFmpeg();
+  ffmpegLoadError = null;
+
+  const primary = getCoreUrls();
+  const secondaryUrls = {
+    coreURL: primary.coreURL.replace(primary.variant, alternateVariant(primary.variant)),
+    wasmURL: primary.wasmURL.replace(primary.variant, alternateVariant(primary.variant))
+  };
+
+  async function attempt(coreURL: string, wasmURL: string): Promise<void> {
+    await ffmpeg!.load({
+      coreURL: await toBlobURL(coreURL, "text/javascript"),
+      wasmURL: await toBlobURL(wasmURL, "application/wasm")
+    });
+  }
 
   try {
-    const baseUrl = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm";
-    await ffmpeg.load({
-      coreURL: await toBlobURL(`${baseUrl}/ffmpeg-core.js`, "text/javascript"),
-      wasmURL: await toBlobURL(`${baseUrl}/ffmpeg-core.wasm`, "application/wasm")
-    });
-  } catch (error) {
-    loadPromise = null;
-    throw new Error(
-      error instanceof Error
-        ? `FFmpeg failed to load: ${error.message}`
-        : "FFmpeg failed to load in this browser."
-    );
+    await attempt(primary.coreURL, primary.wasmURL);
+  } catch (firstError) {
+    try {
+      await attempt(secondaryUrls.coreURL, secondaryUrls.wasmURL);
+    } catch (secondError) {
+      loadPromise = null;
+      ffmpeg = null;
+      const detail = buildLoadErrorMessage(
+        firstError,
+        primary.variant,
+        secondError,
+        alternateVariant(primary.variant)
+      );
+      ffmpegLoadError = detail;
+      throw new Error(detail);
+    }
   }
 }
 

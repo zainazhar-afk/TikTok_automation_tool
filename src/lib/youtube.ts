@@ -242,6 +242,156 @@ function getFriendlyYouTubeError(reason?: string, rawMessage?: string): string {
   return rawMessage ?? "YouTube API request failed.";
 }
 
+export async function getTrendingVideos(regionCode = "US"): Promise<YouTubeVideo[]> {
+  const response = await youtubeGet<{ items?: VideoItem[] }>("videos", {
+    part: "snippet,statistics,contentDetails",
+    chart: "mostPopular",
+    regionCode,
+    maxResults: "25"
+  });
+
+  const videos =
+    response.items?.map((item) => {
+      const durationSeconds = parseISODurationToSeconds(item.contentDetails.duration);
+      const viewCount = toNumber(item.statistics?.viewCount);
+      const likeCount = toNumber(item.statistics?.likeCount);
+      const commentCount = toNumber(item.statistics?.commentCount);
+
+      return {
+        id: item.id,
+        title: item.snippet.title,
+        description: item.snippet.description ?? "",
+        thumbnail:
+          item.snippet.thumbnails?.maxres?.url ??
+          item.snippet.thumbnails?.standard?.url ??
+          item.snippet.thumbnails?.high?.url ??
+          item.snippet.thumbnails?.medium?.url ??
+          "",
+        publishedAt: item.snippet.publishedAt,
+        duration: item.contentDetails.duration,
+        durationSeconds,
+        viewCount,
+        likeCount,
+        commentCount,
+        viralScore: calculateViralScore({
+          viewCount,
+          likeCount,
+          commentCount,
+          publishedAt: item.snippet.publishedAt,
+          durationSeconds
+        })
+      };
+    }) ?? [];
+
+  return videos.sort((a, b) => b.viralScore - a.viralScore);
+}
+
+type SearchItem = {
+  id: {
+    kind: string;
+    videoId: string;
+  };
+  snippet: {
+    title: string;
+    description?: string;
+    publishedAt: string;
+    thumbnails?: {
+      medium?: { url: string };
+      high?: { url: string };
+      default?: { url: string };
+    };
+  };
+};
+
+/**
+ * Searches YouTube for short-form videos (YouTube Shorts) by niche.
+ * Uses the Search API with videoDuration=short and niche-specific keywords.
+ */
+export async function searchYouTubeShorts(
+  niche: string,
+  regionCode = "US"
+): Promise<YouTubeVideo[]> {
+  const nicheQueries: Record<string, string> = {
+    gaming: "gaming shorts gameplay",
+    music: "music shorts song",
+    sports: "sports shorts highlights",
+    comedy: "funny comedy shorts",
+    food: "food cooking shorts recipe",
+    tech: "tech science shorts",
+    animals: "cute animals pets shorts",
+    diy: "diy crafts shorts tutorial",
+    fashion: "fashion beauty shorts style",
+    motivation: "motivational shorts inspiration",
+    all: "#shorts"
+  };
+
+  const query = nicheQueries[niche] ?? nicheQueries.all;
+
+  // Step 1: Search for videos
+  const searchResponse = await youtubeGet<{ items?: SearchItem[] }>("search", {
+    part: "snippet",
+    q: query,
+    type: "video",
+    videoDuration: "short",
+    regionCode,
+    maxResults: "25",
+    relevanceLanguage: "en"
+  });
+
+  const searchItems = searchResponse.items ?? [];
+  const ids = searchItems
+    .map((item) => item.id?.videoId)
+    .filter((id): id is string => Boolean(id));
+
+  if (ids.length === 0) {
+    return [];
+  }
+
+  // Step 2: Fetch full video details for view counts, duration, etc.
+  const videosResponse = await youtubeGet<{ items?: VideoItem[] }>("videos", {
+    part: "snippet,statistics,contentDetails",
+    id: ids.join(",")
+  });
+
+  const videos =
+    videosResponse.items?.map((item) => {
+      const durationSeconds = parseISODurationToSeconds(item.contentDetails.duration);
+      const viewCount = toNumber(item.statistics?.viewCount);
+      const likeCount = toNumber(item.statistics?.likeCount);
+      const commentCount = toNumber(item.statistics?.commentCount);
+
+      return {
+        id: item.id,
+        title: item.snippet.title,
+        description: item.snippet.description ?? "",
+        thumbnail:
+          item.snippet.thumbnails?.maxres?.url ??
+          item.snippet.thumbnails?.standard?.url ??
+          item.snippet.thumbnails?.high?.url ??
+          item.snippet.thumbnails?.medium?.url ??
+          "",
+        publishedAt: item.snippet.publishedAt,
+        duration: item.contentDetails.duration,
+        durationSeconds,
+        viewCount,
+        likeCount,
+        commentCount,
+        viralScore: calculateViralScore({
+          viewCount,
+          likeCount,
+          commentCount,
+          publishedAt: item.snippet.publishedAt,
+          durationSeconds
+        })
+      };
+    }) ?? [];
+
+  // Filter to only short videos (under 61 seconds — typical Shorts max)
+  const shorts = videos.filter((v) => v.durationSeconds > 0 && v.durationSeconds <= 61);
+
+  return shorts.sort((a, b) => b.viralScore - a.viralScore);
+}
+
 function toNumber(value?: string): number {
   const number = Number(value ?? 0);
   return Number.isFinite(number) ? number : 0;
